@@ -1433,6 +1433,7 @@ function relax_constraint(
         end
     end
     return undo!
+end
 """
     relax_with_penalty!(
         model::Model,
