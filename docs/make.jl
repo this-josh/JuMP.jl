@@ -1,3 +1,5 @@
+import Pkg
+Pkg.pkg"add Documenter#30baed5"
 import Documenter
 import Literate
 import Test
@@ -86,6 +88,8 @@ if !_FAST
     for file in [
         joinpath("getting_started", "getting_started_with_julia.md"),
         joinpath("getting_started", "getting_started_with_JuMP.md"),
+        joinpath("getting_started", "debugging.md"),
+        joinpath("linear", "tips_and_tricks.md"),
     ]
         filename = joinpath(@__DIR__, "src", "tutorials", file)
         content = read(filename, String)
@@ -132,8 +136,6 @@ const _PAGES = [
             "tutorials/linear/n-queens.md",
             "tutorials/linear/lp_sensitivity.md",
             "tutorials/linear/network_flows.md",
-            "tutorials/linear/prod.md",
-            "tutorials/linear/steelT3.md",
             "tutorials/linear/sudoku.md",
             "tutorials/linear/transp.md",
             "tutorials/linear/callbacks.md",
@@ -181,6 +183,7 @@ const _PAGES = [
         "manual/solutions.md",
         "manual/nlp.md",
         "manual/callbacks.md",
+        "manual/complex.md",
     ],
     "API Reference" => [
         "reference/models.md",
@@ -207,19 +210,57 @@ const _PAGES = [
 ]
 
 # ==============================================================================
+#  Modify the release notes
+# ==============================================================================
+
+function fix_release_line(
+    line::String,
+    url::String = "https://github.com/jump-dev/JuMP.jl",
+)
+    # (#XXXX) -> ([#XXXX](url/issue/XXXX))
+    while (m = match(r"\(\#([0-9]+)\)", line)) !== nothing
+        id = m.captures[1]
+        line = replace(line, m.match => "([#$id]($url/issues/$id))")
+    end
+    # ## Version X.Y.Z -> [Version X.Y.Z](url/releases/tag/vX.Y.Z)
+    while (m = match(r"\#\# Version ([0-9]+.[0-9]+.[0-9]+)", line)) !== nothing
+        tag = m.captures[1]
+        line = replace(
+            line,
+            m.match => "## [Version $tag]($url/releases/tag/v$tag)",
+        )
+    end
+    # ## vX.Y.Z -> [vX.Y.Z](url/releases/tag/vX.Y.Z)
+    while (m = match(r"\#\# (v[0-9]+.[0-9]+.[0-9]+)", line)) !== nothing
+        tag = m.captures[1]
+        line = replace(line, m.match => "## [$tag]($url/releases/tag/$tag)")
+    end
+    return line
+end
+
+open(joinpath(@__DIR__, "src", "changelog.md"), "r") do in_io
+    open(joinpath(@__DIR__, "src", "release_notes.md"), "w") do out_io
+        for line in readlines(in_io; keep = true)
+            write(out_io, fix_release_line(line))
+        end
+    end
+end
+
+# ==============================================================================
 #  Embed MathOptInterface.jl documentation
 # ==============================================================================
 
 function _add_moi_pages()
+    moi_dir = joinpath(@__DIR__, "src", "moi")
+    try
+        rm(moi_dir; recursive = true)
+    catch
+    end
     moi_docs = joinpath(dirname(dirname(pathof(MOI))), "docs")
-    cp(
-        joinpath(moi_docs, "src"),
-        joinpath(@__DIR__, "src", "moi");
-        force = true,
-    )
+    cp(joinpath(moi_docs, "src"), moi_dir; force = true)
     # Files in `moi_docs` are probably in read-only mode (`0o444`). Let's give
     # ourselves write permission.
-    chmod(joinpath(@__DIR__, "src", "moi"), 0o777; recursive = true)
+    chmod(moi_dir, 0o777; recursive = true)
     make = read(joinpath(moi_docs, "make.jl"), String)
     # Match from `_PAGES = [` until the start of in `# =====`
     s = strip(match(r"_PAGES = (\[.+?)\#"s, make)[1])
@@ -241,20 +282,29 @@ function _add_moi_pages()
     !!! warning
         This documentation in this section is a copy of the official
         MathOptInterface documentation available at
-        [https://jump.dev/MathOptInterface.jl/v1.8.0](https://jump.dev/MathOptInterface.jl/v1.8.0).
+        [https://jump.dev/MathOptInterface.jl/v1.11.0](https://jump.dev/MathOptInterface.jl/v1.11.0).
         It is included here to make it easier to link concepts between JuMP and
         MathOptInterface.
     """
-    index_filename = joinpath(@__DIR__, "src", "moi", "index.md")
+    index_filename = joinpath(moi_dir, "index.md")
     content = replace(read(index_filename, String), src => dest)
     write(index_filename, content)
+    open(joinpath(moi_dir, "changelog.md"), "r") do in_io
+        open(joinpath(moi_dir, "release_notes.md"), "w") do out_io
+            for line in readlines(in_io; keep = true)
+                write(
+                    out_io,
+                    fix_release_line(
+                        line,
+                        "https://github.com/jump-dev/MathOptInterface.jl",
+                    ),
+                )
+            end
+        end
+    end
     return
 end
 
-try
-    rm(joinpath(@__DIR__, "src", "moi"); recursive = true)
-catch
-end
 _add_moi_pages()
 
 # ==============================================================================
@@ -274,6 +324,9 @@ function _validate_pages()
     doc_src = joinpath(@__DIR__, "src", "")
     for (root, dir, files) in walkdir(doc_src)
         for file in files
+            if file == "changelog.md"
+                continue
+            end
             filename = replace(joinpath(root, file), doc_src => "")
             if endswith(filename, ".md") && !(filename in set)
                 push!(missing_files, filename)

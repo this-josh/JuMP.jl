@@ -17,6 +17,8 @@ necessarily integers.
 """
 module Containers
 
+import Base.Meta.isexpr
+
 # Arbitrary typed indices. Linear indexing not supported.
 struct IndexAnyCartesian <: Base.IndexStyle end
 Base.IndexStyle(::IndexAnyCartesian, ::IndexAnyCartesian) = IndexAnyCartesian()
@@ -54,5 +56,6 @@ include("nested_iterator.jl")
 include("no_duplicate_dict.jl")
 include("container.jl")
 include("macro.jl")
+include("tables.jl")
 
 end

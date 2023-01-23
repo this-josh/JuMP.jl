@@ -41,6 +41,7 @@ missingstring
 multiline
 namespace
 param
+performant
 [Pp]recompil(ation|(e(?d)))
 Printf
 preprint
@@ -49,6 +50,7 @@ README
 recurse
 reimplemented
 src
+Stacktrace
 subexpression(?s)
 TODO
 transpiled
@@ -81,6 +83,7 @@ rhs
 satisfiability
 scalarization(?s)
 [Ss]emi(continuous|integer|definite)
+subgradient
 subtour(?s)
 tl
 unboundedness

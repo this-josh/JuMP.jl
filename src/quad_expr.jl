@@ -148,11 +148,7 @@ Remove terms in the quadratic expression with `0` coefficients.
 """
 function drop_zeros!(expr::GenericQuadExpr)
     drop_zeros!(expr.aff)
-    for (key, coef) in expr.terms
-        if iszero(coef)
-            delete!(expr.terms, key)
-        end
-    end
+    _drop_zeros!(expr.terms)
     return
 end
 
@@ -418,9 +414,9 @@ end
 
 function add_to_expression!(
     quad::GenericQuadExpr{C,V},
-    lhs::GenericAffExpr{C,V},
-    rhs::GenericAffExpr{C,V},
-) where {C,V}
+    lhs::GenericAffExpr{S,V},
+    rhs::GenericAffExpr{T,V},
+) where {C,S,T,V}
     lhs_length = length(linear_terms(lhs))
     rhs_length = length(linear_terms(rhs))
 
@@ -497,12 +493,8 @@ Base.hash(quad::GenericQuadExpr, h::UInt) = hash(quad.aff, hash(quad.terms, h))
 
 function SparseArrays.dropzeros(quad::GenericQuadExpr)
     quad_terms = copy(quad.terms)
-    for (key, value) in quad.terms
-        if iszero(value)
-            delete!(quad_terms, key)
-        end
-    end
-    return GenericQuadExpr(dropzeros(quad.aff), quad_terms)
+    _drop_zeros!(quad_terms)
+    return GenericQuadExpr(SparseArrays.dropzeros(quad.aff), quad_terms)
 end
 
 # Check if two QuadExprs are equal regardless of the order, and after dropping zeros.
@@ -511,8 +503,8 @@ function isequal_canonical(
     quad::GenericQuadExpr{CoefType,VarType},
     other::GenericQuadExpr{CoefType,VarType},
 ) where {CoefType,VarType}
-    quad_nozeros = dropzeros(quad)
-    other_nozeros = dropzeros(other)
+    quad_nozeros = SparseArrays.dropzeros(quad)
+    other_nozeros = SparseArrays.dropzeros(other)
     return isequal(quad_nozeros, other_nozeros)
 end
 

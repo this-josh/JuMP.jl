@@ -11,12 +11,12 @@
 const _JuMPTypes = Union{AbstractJuMPScalar,NonlinearExpression}
 
 _float_type(::Type{<:Real}) = Float64
-_float_type(::Type{<:UniformScaling}) = Float64
+_float_type(::Type{LinearAlgebra.UniformScaling{T}}) where {T} = _float_type(T)
 _float_type(::Type{<:Complex}) = Complex{Float64}
 
 _float(x::Real) = convert(Float64, x)
 _float(x::Complex) = convert(Complex{Float64}, x)
-_float(J::UniformScaling) = _float(J.λ)
+_float(J::LinearAlgebra.UniformScaling) = _float(J.λ)
 
 # Overloads
 #
@@ -47,18 +47,25 @@ function Base.:*(lhs::_Constant, rhs::AbstractVariableRef)
 end
 # _Constant--_GenericAffOrQuadExpr
 function Base.:+(lhs::_Constant, rhs::_GenericAffOrQuadExpr)
-    result = _MA.mutable_copy(rhs)
+    # If `lhs` is complex and `rhs` has real coefficients then the conversion is needed
+    T = _MA.promote_operation(+, _float_type(typeof(lhs)), typeof(rhs))
+    result = _MA.mutable_copy(convert(T, rhs))
     add_to_expression!(result, lhs)
     return result
 end
 function Base.:-(lhs::_Constant, rhs::_GenericAffOrQuadExpr)
-    result = -rhs
+    # If `lhs` is complex and `rhs` has real coefficients then the conversion is needed
+    T = _MA.promote_operation(+, _float_type(typeof(lhs)), typeof(rhs))
+    result = convert(T, -rhs)
     add_to_expression!(result, lhs)
     return result
 end
 function Base.:*(lhs::_Constant, rhs::_GenericAffOrQuadExpr)
     if iszero(lhs)
-        return zero(rhs)
+        # If `lhs` is complex and `rhs` has real coefficients, `zero(rhs)` would not work
+        return zero(
+            _MA.promote_operation(*, _float_type(typeof(lhs)), typeof(rhs)),
+        )
     else
         α = _constant_to_number(lhs)
         return map_coefficients(c -> α * c, rhs)
@@ -244,6 +251,36 @@ function _copy_convert_coef(::Type{T}, quad::GenericQuadExpr{C,V}) where {T,C,V}
     return convert(GenericQuadExpr{T,V}, quad)
 end
 
+"""
+    operator_warn(model::AbstractModel)
+    operator_warn(model::Model)
+
+This function is called on the model whenever two affine expressions are added
+together without using `destructive_add!`, and at least one of the two
+expressions has more than 50 terms.
+
+For the case of `Model`, if this function is called more than 20,000 times then
+a warning is generated once.
+"""
+operator_warn(::AbstractModel) = nothing
+
+function operator_warn(model::Model)
+    model.operator_counter += 1
+    if model.operator_counter > 20000
+        @warn(
+            "The addition operator has been used on JuMP expressions a large " *
+            "number of times. This warning is safe to ignore but may " *
+            "indicate that model generation is slower than necessary. For " *
+            "performance reasons, you should not add expressions in a loop. " *
+            "Instead of x += y, use add_to_expression!(x,y) to modify x in " *
+            "place. If y is a single variable, you may also use " *
+            "add_to_expression!(x, coef, y) for x += coef*y.",
+            maxlog = 1
+        )
+    end
+    return
+end
+
 function Base.:+(
     lhs::GenericAffExpr{S,V},
     rhs::GenericAffExpr{T,V},
@@ -273,10 +310,10 @@ function Base.:-(
 end
 
 function Base.:*(
-    lhs::GenericAffExpr{C,V},
-    rhs::GenericAffExpr{C,V},
-) where {C,V<:_JuMPTypes}
-    result = zero(GenericQuadExpr{C,V})
+    lhs::GenericAffExpr{S,V},
+    rhs::GenericAffExpr{T,V},
+) where {S,T,V<:_JuMPTypes}
+    result = zero(GenericQuadExpr{_MA.promote_sum_mul(S, T),V})
     add_to_expression!(result, lhs, rhs)
     return result
 end
@@ -296,7 +333,7 @@ end
 Base.:+(lhs::GenericQuadExpr) = lhs
 Base.:-(lhs::GenericQuadExpr) = map_coefficients(-, lhs)
 # GenericQuadExpr--_Constant
-# We don't do `+rhs` as `UniformScaling` does not support unary `+`
+# We don't do `+rhs` as `LinearAlgebra.UniformScaling` does not support unary `+`
 Base.:+(lhs::GenericQuadExpr, rhs::_Constant) = (+)(rhs, lhs)
 Base.:-(lhs::GenericQuadExpr, rhs::_Constant) = (+)(-rhs, lhs)
 Base.:*(lhs::GenericQuadExpr, rhs::_Constant) = (*)(rhs, lhs)
@@ -382,9 +419,15 @@ function Base.promote_rule(
 end
 function Base.promote_rule(
     ::Type{GenericAffExpr{S,V}},
-    R::Type{<:Real},
+    R::Type{<:Number},
 ) where {S,V}
     return GenericAffExpr{promote_type(S, R),V}
+end
+function Base.promote_rule(
+    ::Type{<:GenericAffExpr{S,V}},
+    ::Type{<:GenericAffExpr{T,V}},
+) where {S,T,V}
+    return GenericAffExpr{promote_type(S, T),V}
 end
 function Base.promote_rule(
     ::Type{<:GenericAffExpr{S,V}},

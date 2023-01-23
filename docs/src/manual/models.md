@@ -159,6 +159,22 @@ julia> get_optimizer_attribute(model, "output_flag")
 false
 ```
 
+You can also modify attributes within an [`optimizer_with_attributes`](@ref)
+object:
+```jldoctest
+julia> solver = optimizer_with_attributes(HiGHS.Optimizer, "output_flag" => true);
+
+julia> get_optimizer_attribute(solver, "output_flag")
+true
+
+julia> set_optimizer_attribute(solver, "output_flag", false)
+
+julia> get_optimizer_attribute(solver, "output_flag")
+false
+
+julia> model = Model(solver);
+```
+
 ## Print the model
 
 By default, `show(model)` will print a summary of the problem:
@@ -232,7 +248,7 @@ julia> unset_silent(model)
 
 Use [`set_time_limit_sec`](@ref), [`unset_time_limit_sec`](@ref), and
 [`time_limit_sec`](@ref) to manage time limits.
-```jldoctest
+```jldoctest time_limit
 julia> model = Model(HiGHS.Optimizer);
 
 julia> set_time_limit_sec(model, 60.0)
@@ -245,6 +261,20 @@ julia> unset_time_limit_sec(model)
 
 julia> time_limit_sec(model)
 Inf
+```
+
+If your time limit is encoded as a `Dates.Period` object, use the following code
+to convert it to `Float64` for [`set_time_limit_sec`](@ref):
+```jldoctest time_limit
+julia> import Dates
+
+julia> seconds(x::Dates.Period) = 1e-3 * Dates.value(round(x, Dates.Millisecond))
+seconds (generic function with 1 method)
+
+julia> set_time_limit_sec(model, seconds(Dates.Hour(1)))
+
+julia> time_limit_sec(model)
+3600.0
 ```
 
 !!! info

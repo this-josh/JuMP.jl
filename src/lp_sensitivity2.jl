@@ -3,9 +3,6 @@
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
 #  file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-import SparseArrays
-import LinearAlgebra
-
 """
     SensitivityReport
 
@@ -95,7 +92,7 @@ function lp_sensitivity_report(model::Model; atol::Float64 = 1e-8)
         # We call `collect` here because some Julia versions are missing sparse
         # matrix \ sparse vector fallbacks.
         j => B_fact \ collect(std_form.A[:, j]) for
-        j = 1:length(basis.basic_cols) if basis.basic_cols[j] == false
+        j in 1:length(basis.basic_cols) if basis.basic_cols[j] == false
     )
 
     report = SensitivityReport(

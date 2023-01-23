@@ -15,8 +15,6 @@
 # Operator overloads in src/operators.jl
 #############################################################################
 
-import OrderedCollections
-
 function _add_or_set!(dict::OrderedDict{K,V}, k::K, v::V) where {K,V}
     # Adding zero terms to this dictionary leads to unacceptable performance
     # degradations. See, e.g., https://github.com/jump-dev/JuMP.jl/issues/1946.
@@ -203,7 +201,7 @@ Base.broadcastable(a::GenericAffExpr) = Ref(a)
 
 Base.conj(a::GenericAffExpr{<:Real}) = a
 Base.real(a::GenericAffExpr{<:Real}) = a
-Base.imag(a::GenericAffExpr{<:Real}) = a
+Base.imag(a::GenericAffExpr{<:Real}) = zero(a)
 Base.abs2(a::GenericAffExpr{<:Real}) = a^2
 
 Base.conj(a::GenericAffExpr{<:Complex}) = map_coefficients(conj, a)
@@ -211,7 +209,10 @@ Base.conj(a::GenericAffExpr{<:Complex}) = map_coefficients(conj, a)
 function _map_coefs(f::Function, a::GenericAffExpr{Complex{T},V}) where {T,V}
     output = convert(GenericAffExpr{T,V}, f(a.constant))
     for (coef, var) in linear_terms(a)
-        output.terms[var] = f(coef)
+        new_coef = f(coef)
+        if !iszero(new_coef)
+            output.terms[var] = new_coef
+        end
     end
     return output
 end
@@ -241,11 +242,7 @@ coefficient(::GenericAffExpr{C,V}, ::V, ::V) where {C,V} = zero(C)
 Remove terms in the affine expression with `0` coefficients.
 """
 function drop_zeros!(expr::GenericAffExpr)
-    for (key, coef) in expr.terms
-        if iszero(coef)
-            delete!(expr.terms, key)
-        end
-    end
+    _drop_zeros!(expr.terms)
     return
 end
 
@@ -493,16 +490,25 @@ end
 
 Base.hash(aff::GenericAffExpr, h::UInt) = hash(aff.constant, hash(aff.terms, h))
 
-function SparseArrays.dropzeros(aff::GenericAffExpr)
-    result = copy(aff)
-    for (coef, var) in linear_terms(aff)
+function _drop_zeros!(terms::OrderedDict)
+    for (var, coef) in terms
         if iszero(coef)
-            delete!(result.terms, var)
+            delete!(terms, var)
+        elseif coef isa Complex && iszero(imag(coef))
+            terms[var] = real(coef)
         end
     end
+    return
+end
+
+function SparseArrays.dropzeros(aff::GenericAffExpr)
+    result = copy(aff)
+    _drop_zeros!(result.terms)
     if iszero(result.constant)
         # This is to work around isequal(0.0, -0.0) == false.
         result.constant = zero(typeof(result.constant))
+    elseif result.constant isa Complex && iszero(imag(result.constant))
+        result.constant = real(result.constant)
     end
     return result
 end
@@ -520,8 +526,8 @@ function isequal_canonical(
     aff::GenericAffExpr{C,V},
     other::GenericAffExpr{C,V},
 ) where {C,V}
-    aff_nozeros = dropzeros(aff)
-    other_nozeros = dropzeros(other)
+    aff_nozeros = SparseArrays.dropzeros(aff)
+    other_nozeros = SparseArrays.dropzeros(other)
     # Note: This depends on equality of OrderedDicts ignoring order.
     # This is the current behavior, but it seems questionable.
     return isequal(aff_nozeros, other_nozeros)

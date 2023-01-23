@@ -4,6 +4,13 @@
 #  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 """
+    num_variables(model::Model)::Int64
+
+Returns number of variables in `model`.
+"""
+num_variables(model::Model)::Int64 = MOI.get(model, MOI.NumberOfVariables())
+
+"""
     AbstractVariable
 
 Variable returned by [`build_variable`](@ref). It represents a variable that has
@@ -191,7 +198,7 @@ abstract type AbstractVariableRef <: AbstractJuMPScalar end
 variable_ref_type(v::AbstractVariableRef) = typeof(v)
 Base.conj(v::AbstractVariableRef) = v
 Base.real(v::AbstractVariableRef) = v
-Base.imag(v::AbstractVariableRef) = v
+Base.imag(v::AbstractVariableRef) = zero(v)
 Base.abs2(v::AbstractVariableRef) = v^2
 
 """
@@ -258,6 +265,18 @@ end
 Base.iszero(::VariableRef) = false
 Base.copy(v::VariableRef) = VariableRef(v.model, v.index)
 Base.broadcastable(v::VariableRef) = Ref(v)
+
+Base.zero(v::AbstractVariableRef) = zero(typeof(v))
+
+function Base.zero(::Type{V}) where {V<:AbstractVariableRef}
+    return zero(GenericAffExpr{Float64,V})
+end
+
+Base.one(v::AbstractVariableRef) = one(typeof(v))
+
+function Base.one(::Type{V}) where {V<:AbstractVariableRef}
+    return one(GenericAffExpr{Float64,V})
+end
 
 """
     coefficient(v1::VariableRef, v2::VariableRef)
@@ -518,7 +537,9 @@ function _moi_has_lower_bound(moi_backend, v::VariableRef)
 end
 
 function _lower_bound_index(v::VariableRef)
-    return _MOICON{MOI.VariableIndex,MOI.GreaterThan{Float64}}(index(v).value)
+    return MOI.ConstraintIndex{MOI.VariableIndex,MOI.GreaterThan{Float64}}(
+        index(v).value,
+    )
 end
 
 """
@@ -564,7 +585,7 @@ See also [`has_lower_bound`](@ref), [`lower_bound`](@ref),
 [`set_lower_bound`](@ref), [`delete_lower_bound`](@ref).
 """
 function LowerBoundRef(v::VariableRef)
-    moi_lb = _MOICON{MOI.VariableIndex,MOI.GreaterThan{Float64}}
+    moi_lb = MOI.ConstraintIndex{MOI.VariableIndex,MOI.GreaterThan{Float64}}
     return ConstraintRef{Model,moi_lb,ScalarShape}(
         owner_model(v),
         _lower_bound_index(v),
@@ -581,7 +602,7 @@ See also [`LowerBoundRef`](@ref), [`has_lower_bound`](@ref),
 [`lower_bound`](@ref), [`set_lower_bound`](@ref).
 """
 function delete_lower_bound(variable_ref::VariableRef)
-    JuMP.delete(owner_model(variable_ref), LowerBoundRef(variable_ref))
+    delete(owner_model(variable_ref), LowerBoundRef(variable_ref))
     return
 end
 
@@ -625,7 +646,9 @@ function _moi_has_upper_bound(moi_backend, v::VariableRef)
 end
 
 function _upper_bound_index(v::VariableRef)
-    return _MOICON{MOI.VariableIndex,MOI.LessThan{Float64}}(index(v).value)
+    return MOI.ConstraintIndex{MOI.VariableIndex,MOI.LessThan{Float64}}(
+        index(v).value,
+    )
 end
 
 """
@@ -671,7 +694,7 @@ See also [`has_upper_bound`](@ref), [`upper_bound`](@ref),
 [`set_upper_bound`](@ref), [`delete_upper_bound`](@ref).
 """
 function UpperBoundRef(v::VariableRef)
-    moi_ub = _MOICON{MOI.VariableIndex,MOI.LessThan{Float64}}
+    moi_ub = MOI.ConstraintIndex{MOI.VariableIndex,MOI.LessThan{Float64}}
     return ConstraintRef{Model,moi_ub,ScalarShape}(
         owner_model(v),
         _upper_bound_index(v),
@@ -688,7 +711,7 @@ See also [`UpperBoundRef`](@ref), [`has_upper_bound`](@ref),
 [`upper_bound`](@ref), [`set_upper_bound`](@ref).
 """
 function delete_upper_bound(variable_ref::VariableRef)
-    JuMP.delete(owner_model(variable_ref), UpperBoundRef(variable_ref))
+    delete(owner_model(variable_ref), UpperBoundRef(variable_ref))
     return
 end
 
@@ -731,7 +754,9 @@ function _moi_is_fixed(moi_backend, v::VariableRef)
 end
 
 function _fix_index(v::VariableRef)
-    return _MOICON{MOI.VariableIndex,MOI.EqualTo{Float64}}(index(v).value)
+    return MOI.ConstraintIndex{MOI.VariableIndex,MOI.EqualTo{Float64}}(
+        index(v).value,
+    )
 end
 
 """
@@ -799,7 +824,7 @@ See also [`FixRef`](@ref), [`is_fixed`](@ref), [`fix_value`](@ref),
 [`fix`](@ref).
 """
 function unfix(variable_ref::VariableRef)
-    JuMP.delete(owner_model(variable_ref), FixRef(variable_ref))
+    delete(owner_model(variable_ref), FixRef(variable_ref))
     return
 end
 
@@ -829,7 +854,7 @@ See also [`is_fixed`](@ref), [`fix_value`](@ref), [`fix`](@ref),
 [`unfix`](@ref).
 """
 function FixRef(v::VariableRef)
-    moi_fix = _MOICON{MOI.VariableIndex,MOI.EqualTo{Float64}}
+    moi_fix = MOI.ConstraintIndex{MOI.VariableIndex,MOI.EqualTo{Float64}}
     return ConstraintRef{Model,moi_fix,ScalarShape}(
         owner_model(v),
         _fix_index(v),
@@ -853,7 +878,7 @@ function _moi_is_integer(moi_backend, v::VariableRef)
 end
 
 function _integer_index(v::VariableRef)
-    return _MOICON{MOI.VariableIndex,MOI.Integer}(index(v).value)
+    return MOI.ConstraintIndex{MOI.VariableIndex,MOI.Integer}(index(v).value)
 end
 
 """
@@ -890,7 +915,7 @@ Remove the integrality constraint on the variable `variable_ref`.
 See also [`IntegerRef`](@ref), [`is_integer`](@ref), [`set_integer`](@ref).
 """
 function unset_integer(variable_ref::VariableRef)
-    JuMP.delete(owner_model(variable_ref), IntegerRef(variable_ref))
+    delete(owner_model(variable_ref), IntegerRef(variable_ref))
     return
 end
 
@@ -903,7 +928,7 @@ Errors if one does not exist.
 See also [`is_integer`](@ref), [`set_integer`](@ref), [`unset_integer`](@ref).
 """
 function IntegerRef(v::VariableRef)
-    moi_int = _MOICON{MOI.VariableIndex,MOI.Integer}
+    moi_int = MOI.ConstraintIndex{MOI.VariableIndex,MOI.Integer}
     return ConstraintRef{Model,moi_int,ScalarShape}(
         owner_model(v),
         _integer_index(v),
@@ -927,7 +952,7 @@ function _moi_is_binary(moi_backend, v::VariableRef)
 end
 
 function _binary_index(v::VariableRef)
-    return _MOICON{MOI.VariableIndex,MOI.ZeroOne}(index(v).value)
+    return MOI.ConstraintIndex{MOI.VariableIndex,MOI.ZeroOne}(index(v).value)
 end
 
 """
@@ -965,7 +990,7 @@ Remove the binary constraint on the variable `variable_ref`.
 See also [`BinaryRef`](@ref), [`is_binary`](@ref), [`set_binary`](@ref).
 """
 function unset_binary(variable_ref::VariableRef)
-    JuMP.delete(owner_model(variable_ref), BinaryRef(variable_ref))
+    delete(owner_model(variable_ref), BinaryRef(variable_ref))
     return
 end
 
@@ -978,7 +1003,7 @@ Errors if one does not exist.
 See also [`is_binary`](@ref), [`set_binary`](@ref), [`unset_binary`](@ref).
 """
 function BinaryRef(v::VariableRef)
-    moi_bin = _MOICON{MOI.VariableIndex,MOI.ZeroOne}
+    moi_bin = MOI.ConstraintIndex{MOI.VariableIndex,MOI.ZeroOne}
     return ConstraintRef{Model,moi_bin,ScalarShape}(
         owner_model(v),
         _binary_index(v),
@@ -999,6 +1024,15 @@ See also [`set_start_value`](@ref).
 function start_value(v::VariableRef)::Union{Nothing,Float64}
     return MOI.get(owner_model(v), MOI.VariablePrimalStart(), v)
 end
+
+"""
+    has_start_value(variable::AbstractVariableRef)
+
+Return `true` if the variable has a start value set otherwise return `false`.
+
+See also [`set_start_value`](@ref).
+"""
+has_start_value(v::AbstractVariableRef)::Bool = start_value(v) !== nothing
 
 """
     set_start_value(variable::VariableRef, value::Union{Real,Nothing})
@@ -1122,9 +1156,13 @@ end
 Variable `scalar_variables` constrained to belong to `set`.
 Adding this variable can be understood as doing:
 ```julia
-function JuMP.add_variable(model::Model, variable::JuMP.VariableConstrainedOnCreation, names)
-    var_ref = JuMP.add_variable(model, variable.scalar_variable, name)
-    JuMP.add_constraint(model, JuMP.VectorConstraint(var_ref, variable.set))
+function JuMP.add_variable(
+    model::Model,
+    variable::VariableConstrainedOnCreation,
+    names,
+)
+    var_ref = add_variable(model, variable.scalar_variable, name)
+    add_constraint(model, VectorConstraint(var_ref, variable.set))
     return var_ref
 end
 ```
@@ -1183,11 +1221,15 @@ end
 Vector of variables `scalar_variables` constrained to belong to `set`.
 Adding this variable can be thought as doing:
 ```julia
-function JuMP.add_variable(model::Model, variable::JuMP.VariablesConstrainedOnCreation, names)
-    var_refs = JuMP.add_variable.(model, variable.scalar_variables,
-                                  JuMP.vectorize(names, variable.shape))
-    JuMP.add_constraint(model, JuMP.VectorConstraint(var_refs, variable.set))
-    return JuMP.reshape_vector(var_refs, variable.shape)
+function JuMP.add_variable(
+    model::Model,
+    variable::VariablesConstrainedOnCreation,
+    names,
+)
+    v_names = vectorize(names, variable.shape)
+    var_refs = add_variable.(model, variable.scalar_variables, v_names)
+    add_constraint(model, VectorConstraint(var_refs, variable.set))
+    return reshape_vector(var_refs, variable.shape)
 end
 ```
 but adds the variables with `MOI.add_constrained_variables(model, variable.set)`
@@ -1258,6 +1300,137 @@ function _moi_add_constrained_variables(
         end
     end
     return var_indices
+end
+
+"""
+    ComplexPlane
+
+Complex plane object that can be used to create a complex variable in the
+[`@variable`](@ref) macro.
+
+## Examples
+
+Consider the following example:
+
+```jldoctest; setup = :(using JuMP)
+julia> model = Model();
+
+julia> @variable(model, x in ComplexPlane())
+real(x) + (0.0 + 1.0im) imag(x)
+
+julia> all_variables(model)
+2-element Vector{VariableRef}:
+ real(x)
+ imag(x)
+```
+
+We see in the output of the last command that two real variables were created.
+The Julia variable `x` binds to an affine expression in terms of these two
+variables that parametrize the complex plane.
+"""
+struct ComplexPlane end
+
+"""
+    ComplexVariable{S,T,U,V} <: AbstractVariable
+
+A struct used when adding complex variables.
+
+See also: [`ComplexPlane`](@ref).
+"""
+struct ComplexVariable{S,T,U,V} <: AbstractVariable
+    info::VariableInfo{S,T,U,V}
+end
+
+function build_variable(_error::Function, v::ScalarVariable, ::ComplexPlane)
+    if _is_binary(v) || _is_integer(v)
+        # We would then need to fix the imaginary value to zero. Let's wait to
+        # see if there is need for such complication first.
+        _error(
+            "Creation of binary or integer complex variable is not supported.",
+        )
+    end
+    return ComplexVariable(v.info)
+end
+
+function _mapinfo(f::Function, v::ScalarVariable)
+    info = v.info
+    return ScalarVariable(
+        VariableInfo(
+            info.has_lb,
+            f(info.lower_bound),
+            info.has_ub,
+            f(info.upper_bound),
+            info.has_fix,
+            f(info.fixed_value),
+            info.has_start,
+            f(info.start),
+            info.binary,
+            info.integer,
+        ),
+    )
+end
+
+function _real(s::String)
+    if isempty(s)
+        return s
+    end
+    return string("real(", s, ")")
+end
+
+function _imag(s::String)
+    if isempty(s)
+        return s
+    end
+    return string("imag(", s, ")")
+end
+
+_real(v::ScalarVariable) = _mapinfo(real, v)
+_real(scalar::AbstractJuMPScalar) = real(scalar)
+
+_imag(v::ScalarVariable) = _mapinfo(imag, v)
+_imag(scalar::AbstractJuMPScalar) = imag(scalar)
+
+_conj(v::ScalarVariable) = _mapinfo(conj, v)
+
+function _isreal(v::ScalarVariable)
+    info = v.info
+    return isreal(info.lower_bound) &&
+           isreal(info.upper_bound) &&
+           isreal(info.fixed_value) &&
+           isreal(info.start)
+end
+
+_is_binary(v::ScalarVariable) = v.info.binary
+
+_is_integer(v::ScalarVariable) = v.info.integer
+
+function add_variable(model::Model, v::ComplexVariable, name::String = "")
+    model.is_model_dirty = true
+    var = ScalarVariable(v.info)
+    real_part = add_variable(model, _real(var), _real(name))
+    imag_part = add_variable(model, _imag(var), _imag(name))
+    # Efficiently build `real_part + imag_part * im`
+    return GenericAffExpr{ComplexF64,VariableRef}(
+        zero(ComplexF64),
+        real_part => one(ComplexF64),
+        imag_part => convert(ComplexF64, im),
+    )
+end
+
+function build_variable(
+    _error::Function,
+    variables::AbstractArray{<:ScalarVariable},
+    set::ComplexPlane,
+)
+    return build_variable.(_error, variables, Ref(set))
+end
+
+function add_variable(
+    model::Model,
+    variables::AbstractArray{<:ComplexVariable},
+    name::Union{<:AbstractArray{String},String} = "",
+)
+    return add_variable.(model, variables, name)
 end
 
 """

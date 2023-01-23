@@ -23,6 +23,8 @@ check_belongs_to_model
 VariableNotOwned
 VariableConstrainedOnCreation
 VariablesConstrainedOnCreation
+ComplexPlane
+ComplexVariable
 ```
 
 ## Names
@@ -36,6 +38,7 @@ variable_by_name
 ## Start values
 
 ```@docs
+has_start_value
 set_start_value
 start_value
 ```

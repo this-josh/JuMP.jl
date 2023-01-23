@@ -17,8 +17,8 @@ VectorConstraint
 ## Names
 
 ```@docs
-name(::ConstraintRef{Model,<:JuMP._MOICON})
-set_name(::ConstraintRef{Model,<:JuMP._MOICON}, ::String)
+name(::ConstraintRef{Model,<:JuMP.MOI.ConstraintIndex})
+set_name(::ConstraintRef{Model,<:JuMP.MOI.ConstraintIndex}, ::String)
 constraint_by_name
 ```
 
@@ -33,6 +33,7 @@ normalized_rhs
 set_normalized_rhs
 
 add_to_function_constant
+relax_with_penalty!
 ```
 
 ## Deletion
@@ -67,11 +68,13 @@ dual_start_value
 SecondOrderCone
 RotatedSecondOrderCone
 PSDCone
+HermitianPSDCone
 SOS1
 SOS2
 SkewSymmetricMatrixSpace
 SkewSymmetricMatrixShape
 SymmetricMatrixSpace
+HermitianMatrixShape
 moi_set
 ```
 

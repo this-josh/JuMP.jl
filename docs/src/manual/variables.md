@@ -608,6 +608,20 @@ julia> start_value(y)
 2.0
 ```
 
+The `start` keyword argument can depend on the indices of a variable container:
+
+```jldoctest; setup=:(model=Model())
+julia> @variable(model, z[i = 1:2], start = i^2)
+2-element Vector{VariableRef}:
+ z[1]
+ z[2]
+
+julia> start_value.(z)
+2-element Vector{Float64}:
+ 1.0
+ 4.0
+```
+
 !!! warning
     Some solvers do not support start values. If a solver does not support start
     values, an `MathOptInterface.UnsupportedAttribute{MathOptInterface.VariablePrimalStart}`
@@ -930,11 +944,9 @@ model[:x]
 
 ## Semidefinite variables
 
-A square symmetric matrix ``X`` is positive semidefinite if all eigenvalues are
-nonnegative.
+Declare a square matrix of JuMP variables to be positive semidefinite by passing
+`PSD` as an optional positional argument:
 
-Declare a matrix of JuMP variables to be positive semidefinite by passing `PSD`
-as an optional positional argument:
 ```jldoctest; setup=:(model=Model())
 julia> @variable(model, x[1:2, 1:2], PSD)
 2×2 LinearAlgebra.Symmetric{VariableRef, Matrix{VariableRef}}:
@@ -942,14 +954,19 @@ julia> @variable(model, x[1:2, 1:2], PSD)
  x[1,2]  x[2,2]
 ```
 
+This will ensure that `x` is symmetric, and that all of its eigenvalues are
+nonnegative.
+
 !!! note
     `x` must be a square 2-dimensional `Array` of JuMP variables; it cannot be a
     DenseAxisArray or a SparseAxisArray.
 
 ## Symmetric variables
 
-Declare a square matrix of JuMP variables to be symmetric by passing
-`Symmetric`  as an optional positional argument:
+Declare a square matrix of JuMP variables to be symmetric (but not necessarily
+positive semidefinite) by passing `Symmetric`  as an optional positional
+argument:
+
 ```jldoctest; setup=:(model=Model())
 julia> @variable(model, x[1:2, 1:2], Symmetric)
 2×2 LinearAlgebra.Symmetric{VariableRef, Matrix{VariableRef}}:

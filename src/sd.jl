@@ -79,8 +79,8 @@ julia> jump_function(constraint_object(cref))
 julia> moi_set(constraint_object(cref))
 MathOptInterface.PositiveSemidefiniteConeSquare(2)
 ```
-We see in the output of the last command that the matrix the vectorization of the
-matrix is constrained to belong to the `PositiveSemidefiniteConeSquare`.
+We see in the output of the last command that the vectorization of the matrix
+is constrained to belong to the `PositiveSemidefiniteConeSquare`.
 
 ```jldoctest PSDCone
 julia> using LinearAlgebra # For Symmetric
@@ -148,7 +148,7 @@ function reshape_vector(
             matrix[j, i] = matrix[i, j] = vectorized_form[k]
         end
     end
-    return Symmetric(matrix)
+    return LinearAlgebra.Symmetric(matrix)
 end
 function reshape_set(
     ::MOI.PositiveSemidefiniteConeTriangle,
@@ -228,14 +228,14 @@ end
 
 # This is a special method because calling `Matrix(matrix)` accesses an undef
 # reference.
-function vectorize(matrix::UpperTriangular, ::SquareMatrixShape)
+function vectorize(matrix::LinearAlgebra.UpperTriangular, ::SquareMatrixShape)
     n = LinearAlgebra.checksquare(matrix)
     return [matrix[i, j] for j in 1:n for i in 1:n]
 end
 
 # This is a special method because calling `Matrix(matrix)` accesses an undef
 # reference.
-function vectorize(matrix::LowerTriangular, ::SquareMatrixShape)
+function vectorize(matrix::LinearAlgebra.LowerTriangular, ::SquareMatrixShape)
     n = LinearAlgebra.checksquare(matrix)
     return [matrix[i, j] for j in 1:n for i in 1:n]
 end
@@ -352,9 +352,11 @@ function value(
 end
 
 """
-    build_constraint(_error::Function, Q::Symmetric{V, M},
-                     ::PSDCone) where {V <: AbstractJuMPScalar,
-                                       M <: AbstractMatrix{V}}
+    build_constraint(
+        _error::Function,
+        Q::LinearAlgebra.Symmetric{V, M},
+        ::PSDCone,
+    ) where {V<:AbstractJuMPScalar,M<:AbstractMatrix{V}}
 
 Return a `VectorConstraint` of shape [`SymmetricMatrixShape`](@ref) constraining
 the matrix `Q` to be positive semidefinite.
@@ -375,7 +377,7 @@ var_psd = @constraint model Q in PSDCone()
 """
 function build_constraint(
     _error::Function,
-    Q::Symmetric{V,M},
+    Q::LinearAlgebra.Symmetric{V,M},
     ::PSDCone,
 ) where {V<:AbstractJuMPScalar,M<:AbstractMatrix{V}}
     n = LinearAlgebra.checksquare(Q)
@@ -412,6 +414,169 @@ function build_constraint(
     return VectorConstraint(
         vectorize(Q, shape),
         MOI.PositiveSemidefiniteConeSquare(n),
+        shape,
+    )
+end
+
+"""
+    HermitianPSDCone
+
+Hermitian positive semidefinite cone object that can be used to create a
+Hermitian positive semidefinite square matrix in the [`@variable`](@ref)
+and [`@constraint`](@ref) macros.
+
+## Examples
+
+Consider the following example:
+```jldoctest; setup = :(using JuMP)
+julia> model = Model();
+
+julia> @variable(model, H[1:3, 1:3] in HermitianPSDCone())
+3×3 Matrix{GenericAffExpr{ComplexF64, VariableRef}}:
+ real(H[1,1])                                real(H[1,2]) + (0.0 + 1.0im) imag(H[1,2])   real(H[1,3]) + (0.0 + 1.0im) imag(H[1,3])
+ real(H[1,2]) + (-0.0 - 1.0im) imag(H[1,2])  real(H[2,2])                                real(H[2,3]) + (0.0 + 1.0im) imag(H[2,3])
+ real(H[1,3]) + (-0.0 - 1.0im) imag(H[1,3])  real(H[2,3]) + (-0.0 - 1.0im) imag(H[2,3])  real(H[3,3])
+
+ julia> v = all_variables(model)
+ 9-element Vector{VariableRef}:
+  real(H[1,1])
+  real(H[1,2])
+  real(H[2,2])
+  real(H[1,3])
+  real(H[2,3])
+  real(H[3,3])
+  imag(H[1,2])
+  imag(H[1,3])
+  imag(H[2,3])
+
+julia> all_constraints(model, Vector{VariableRef}, MOI.HermitianPositiveSemidefiniteConeTriangle)
+1-element Vector{ConstraintRef{Model, MathOptInterface.ConstraintIndex{MathOptInterface.VectorOfVariables, MathOptInterface.HermitianPositiveSemidefiniteConeTriangle}}}:
+ [real(H[1,1]), real(H[1,2]), real(H[2,2]), real(H[1,3]), real(H[2,3]), real(H[3,3]), imag(H[1,2]), imag(H[1,3]), imag(H[2,3])] in MathOptInterface.HermitianPositiveSemidefiniteConeTriangle(3)
+```
+We see in the output of the last commands that 9 real variables were created.
+The matrix `H` contrains affine expressions in terms of these 9 variables that
+parametrize a Hermitian matrix.
+"""
+struct HermitianPSDCone end
+
+"""
+    HermitianMatrixShape
+
+Shape object for a Hermitian square matrix of `side_dimension` rows and
+columns. The vectorized form corresponds to
+[`MOI.HermitianPositiveSemidefiniteConeTriangle`](@ref).
+"""
+struct HermitianMatrixShape <: AbstractShape
+    side_dimension::Int
+end
+
+function vectorize(matrix, shape::HermitianMatrixShape)
+    return vectorize(Matrix(matrix), shape)
+end
+
+function vectorize(matrix::Matrix, ::HermitianMatrixShape)
+    n = LinearAlgebra.checksquare(matrix)
+    return vcat(
+        vectorize(_real.(matrix), SymmetricMatrixShape(n)),
+        vectorize(
+            _imag.(matrix[1:(end-1), 2:end]),
+            SymmetricMatrixShape(n - 1),
+        ),
+    )
+end
+
+function reshape_set(
+    ::MOI.HermitianPositiveSemidefiniteConeTriangle,
+    ::HermitianMatrixShape,
+)
+    return HermitianPSDCone()
+end
+
+function reshape_vector(v::Vector{T}, shape::HermitianMatrixShape) where {T}
+    NewType = _MA.promote_operation(_MA.add_mul, T, Complex{Bool}, T)
+    n = shape.side_dimension
+    matrix = Matrix{NewType}(undef, n, n)
+    real_k = 0
+    imag_k = MOI.dimension(MOI.PositiveSemidefiniteConeTriangle(n))
+    for j in 1:n
+        for i in 1:(j-1)
+            real_k += 1
+            imag_k += 1
+            matrix[i, j] = v[real_k] + im * v[imag_k]
+            matrix[j, i] = v[real_k] - im * v[imag_k]
+        end
+        real_k += 1
+        matrix[j, j] = v[real_k]
+    end
+    return matrix
+end
+
+function _vectorize_complex_variables(_error::Function, matrix::Matrix)
+    n = LinearAlgebra.checksquare(matrix)
+    for j in 1:n
+        if !_isreal(matrix[j, j])
+            _error(
+                "Non-real bounds or starting values for diagonal of Hermitian variable.",
+            )
+        end
+        for i in 1:j
+            if matrix[i, j] != _conj(matrix[j, i])
+                _error(
+                    "Non-conjugate bounds or starting values for Hermitian variable.",
+                )
+            end
+        end
+    end
+    return vectorize(matrix, HermitianMatrixShape(n))
+end
+
+function build_variable(
+    _error::Function,
+    variables::Matrix{<:AbstractVariable},
+    ::HermitianPSDCone,
+)
+    n = _square_side(_error, variables)
+    set = MOI.HermitianPositiveSemidefiniteConeTriangle(n)
+    shape = HermitianMatrixShape(n)
+    if any(_is_binary, variables) || any(_is_integer, variables)
+        # We would then need to fix the imaginary value to zero. Let's wait to
+        # see if there is need for such complication first.
+        _error(
+            "Binary or integer variables in a Hermitian matrix is not supported.",
+        )
+    end
+    return VariablesConstrainedOnCreation(
+        _vectorize_complex_variables(_error, variables),
+        set,
+        shape,
+    )
+end
+
+"""
+    build_constraint(
+        _error::Function,
+        Q::LinearAlgebra.Hermitian{V,M},
+        ::HermitianPSDCone,
+    ) where {V<:AbstractJuMPScalar,M<:AbstractMatrix{V}}
+
+Return a `VectorConstraint` of shape [`HermitianMatrixShape`](@ref) constraining
+the matrix `Q` to be Hermitian positive semidefinite.
+
+This function is used by the [`@constraint`](@ref) macros as follows:
+```julia
+@constraint(model, LinearAlgebra.Hermitian(Q) in HermitianPSDCone())
+```
+"""
+function build_constraint(
+    ::Function,
+    Q::LinearAlgebra.Hermitian{V,M},
+    ::HermitianPSDCone,
+) where {V<:AbstractJuMPScalar,M<:AbstractMatrix{V}}
+    n = LinearAlgebra.checksquare(Q)
+    shape = HermitianMatrixShape(n)
+    return VectorConstraint(
+        vectorize(Q, shape),
+        MOI.HermitianPositiveSemidefiniteConeTriangle(n),
         shape,
     )
 end

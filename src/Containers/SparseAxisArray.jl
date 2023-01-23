@@ -190,6 +190,16 @@ function Base.BroadcastStyle(
     return style
 end
 
+# Fix ambiguity
+function Base.BroadcastStyle(::BroadcastStyle, ::Base.Broadcast.Unknown)
+    return throw(
+        ArgumentError(
+            "Cannot broadcast Containers.SparseAxisArray with" *
+            " another array of different type",
+        ),
+    )
+end
+
 # The fallback uses `axes` but recommend in the docstring to create a custom
 # method for custom style if needed.
 function Base.Broadcast.instantiate(
@@ -288,29 +298,38 @@ function _getindex(
     return bc.f(_get_arg(bc.args, index)...)
 end
 
-@static if VERSION >= v"1.3"
-    # `broadcast_preserving_zero_d` calls `axes(A)` which calls `size(A)` which
-    # is not defined. When at least one argument is a `SparseAxisArray`, we can
-    # simply redirect `broadcast_preserving_zero_d` to `broadcast` since we know
-    # the result won't be zero dimensional.
+# `broadcast_preserving_zero_d` calls `axes(A)` which calls `size(A)` which
+# is not defined. When at least one argument is a `SparseAxisArray`, we can
+# simply redirect `broadcast_preserving_zero_d` to `broadcast` since we know
+# the result won't be zero dimensional.
 
-    # Called by `A * 2`
-    function Base.Broadcast.broadcast_preserving_zero_d(
-        f,
-        A::SparseAxisArray,
-        As...,
-    )
-        return broadcast(f, A, As...)
-    end
-    # Called by `2 * A`
-    function Base.Broadcast.broadcast_preserving_zero_d(
-        f,
-        x,
-        A::SparseAxisArray,
-        As...,
-    )
-        return broadcast(f, x, A, As...)
-    end
+# Called by `A * 2`
+function Base.Broadcast.broadcast_preserving_zero_d(
+    f,
+    A::SparseAxisArray,
+    As...,
+)
+    return broadcast(f, A, As...)
+end
+
+# Called by `2 * A`
+function Base.Broadcast.broadcast_preserving_zero_d(
+    f,
+    x,
+    A::SparseAxisArray,
+    As...,
+)
+    return broadcast(f, x, A, As...)
+end
+
+# Fix an ambiguity if the user calls with multiple SparseAxisArray
+function Base.Broadcast.broadcast_preserving_zero_d(
+    f,
+    A::SparseAxisArray,
+    B::SparseAxisArray,
+    args...,
+)
+    return broadcast(f, A, B, args...)
 end
 
 ########

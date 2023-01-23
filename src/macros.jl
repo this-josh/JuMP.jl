@@ -3,8 +3,6 @@
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
 #  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-using Base.Meta
-
 _is_sum(s::Symbol) = (s == :sum) || (s == :∑) || (s == :Σ)
 _is_prod(s::Symbol) = (s == :prod) || (s == :∏)
 
@@ -250,7 +248,7 @@ sparse array adding scalar constraints? This likely means that the user is using
 the wrong data structure. For simplicity, let's also call `collect` into a dense
 array, and wait for complaints.
 """
-_desparsify(x::AbstractSparseArray) = collect(x)
+_desparsify(x::SparseArrays.AbstractSparseArray) = collect(x)
 _desparsify(x) = x
 
 function _functionize(v::V) where {V<:AbstractVariableRef}
@@ -262,7 +260,7 @@ _functionize(v::AbstractArray{<:AbstractVariableRef}) = _functionize.(v)
 function _functionize(
     v::LinearAlgebra.Symmetric{V},
 ) where {V<:AbstractVariableRef}
-    return Symmetric(_functionize(v.data))
+    return LinearAlgebra.Symmetric(_functionize(v.data))
 end
 
 _functionize(x) = x
@@ -617,6 +615,18 @@ end
 
 function build_constraint(
     _error::Function,
+    ::AbstractArray,
+    ::AbstractVector,
+    ::AbstractVector,
+)
+    return _error(
+        "Unexpected vectors in scalar constraint. Did you mean to use the dot ",
+        "comparison operators `l .<= f(x) .<= u` instead?",
+    )
+end
+
+function build_constraint(
+    _error::Function,
     x::Matrix,
     set::MOI.AbstractVectorSet,
 )
@@ -738,7 +748,10 @@ function _constraint_macro(
     # Initial check of the positional arguments and get the model
     if length(pos_args) < 2
         if length(kw_args) > 0
-            _error("Not enough positional arguments")
+            _error(
+                "No constraint expression detected. If you are trying to " *
+                "construct an equality constraint, use `==` instead of `=`.",
+            )
         else
             _error("Not enough arguments")
         end
@@ -1439,6 +1452,13 @@ function build_variable(
         )
     end
     for (key, _) in kwargs
+        if key == :Bool
+            _error(
+                "Unsupported keyword argument: $key.\n\nIf you intended to " *
+                "create a `{0, 1}` decision variable, use the `binary` keyword " *
+                "argument instead: `@variable(model, x, binary = true)`.",
+            )
+        end
         _error(
             "Unrecognized keyword argument: $key.\n\nIf you're trying " *
             "to create a JuMP extension, you need to implement " *
@@ -1527,6 +1547,19 @@ function build_variable(
         )
     end
     return ScalarVariable(info)
+end
+
+function build_variable(
+    _error::Function,
+    info::VariableInfo,
+    ::Type{Bool};
+    kwargs...,
+)
+    return _error(
+        "Unsupported positional argument `Bool`. If you intended to create a " *
+        "`{0, 1}` decision variable, use `Bin` instead. For example, " *
+        "`@variable(model, x, Bin)` or `@variable(model, x, binary = true)`.",
+    )
 end
 
 function build_variable(
@@ -1861,7 +1894,7 @@ end
 # current scope, and checked to see if they were Real. To keep the same behavior
 # we do the same here.
 function _assert_constant_comparison(code::Expr, expr::Expr)
-    if Meta.isexpr(expr, :comparison)
+    if isexpr(expr, :comparison)
         lhs, rhs = gensym(), gensym()
         push!(code.args, esc(:($lhs = $(expr.args[1]))))
         push!(code.args, esc(:($rhs = $(expr.args[5]))))
@@ -1873,7 +1906,7 @@ end
 _assert_constant_comparison(::Expr, ::Any) = nothing
 
 function _auto_register_expression(op_var, op, i)
-    q_op = Meta.quot(op)
+    q_op = quot(op)
     return quote
         try
             MOI.Nonlinear.register_operator_if_needed(
@@ -1901,7 +1934,7 @@ end
 function _parse_nonlinear_expression_inner(::Any, x::Symbol, ::Any)
     x = _normalize_unicode(x)
     if x in (:<=, :>=, :(==), :<, :>, :&&, :||)
-        return Meta.quot(x)
+        return quot(x)
     end
     return esc(x)
 end
@@ -1912,7 +1945,7 @@ _parse_nonlinear_expression_inner(::Any, x, ::Any) = x
 function _is_generator(x)
     return isexpr(x, :call) &&
            length(x.args) >= 2 &&
-           isexpr(x.args[2], :generator)
+           (isexpr(x.args[2], :generator) || isexpr(x.args[2], :flatten))
 end
 
 function _parse_nonlinear_expression_inner(code, x::Expr, operators)
@@ -1934,7 +1967,7 @@ function _parse_nonlinear_expression_inner(code, x::Expr, operators)
         return esc(x)
     end
     y = gensym()
-    y_expr = :($y = Expr($(Meta.quot(x.head))))
+    y_expr = :($y = Expr($(quot(x.head))))
     offset = 1
     if isexpr(x, :call)
         if !(x.args[1] isa Symbol)
@@ -1945,7 +1978,7 @@ function _parse_nonlinear_expression_inner(code, x::Expr, operators)
         end
         op = _normalize_unicode(x.args[1])
         push!(operators, (op, length(x.args) - 1))
-        push!(y_expr.args[2].args, Meta.quot(op))
+        push!(y_expr.args[2].args, quot(op))
         offset += 1
     end
     for i in offset:length(x.args)
@@ -1960,9 +1993,14 @@ function _parse_generator_expression(code, x, operators)
     y = gensym()
     y_expr, default = if _is_sum(x.args[1])
         :($y = Expr(:call, :+)), 0
-    else
-        @assert _is_prod(x.args[1])
+    elseif _is_prod(x.args[1])
         :($y = Expr(:call, :*)), 1
+    elseif x.args[1] == :maximum
+        :($y = Expr(:call, :max)), nothing
+    elseif x.args[1] == :minimum
+        :($y = Expr(:call, :min)), nothing
+    else
+        error("Unsupported generator `:$(x.args[1])`")
     end
     block = _MA.rewrite_generator(
         x.args[2],
@@ -1974,11 +2012,16 @@ function _parse_generator_expression(code, x, operators)
         end,
     )
     # Special case that was handled by JuMP in the past.
+    error_string = "reducing over an empty collection in `$(x.args[1])` is not allowed"
     push!(code.args, quote
         $y_expr
         $block
         if length($y.args) == 1
-            $y = $default
+            if $default === nothing
+                throw(ArgumentError($error_string))
+            else
+                $y = $default
+            end
         end
     end)
     return y
